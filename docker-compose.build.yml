@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  cache-builder:
+    build:
+      context: .
+      dockerfile: Dockerfile.cache
+      args:
+        WHISPER_MODEL: ${WHISPER_MODEL:-base}
+        OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
+    environment:
+      WHISPER_MODEL: ${WHISPER_MODEL:-base}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
+    volumes:
+      - ./cache/whisper:/cache/whisper
+      - ./cache/kokoro:/cache/kokoro
+      - ./cache/ollama:/cache/ollama
+    command: ["/usr/local/bin/prefetch-models.sh"]

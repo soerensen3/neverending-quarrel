@@ -1,0 +1,50 @@
+# syntax=docker/dockerfile:1.7
+
+ARG WHISPER_MODEL=base
+ARG OLLAMA_MODEL=llama3
+
+FROM python:3.11-slim AS whisper-cache
+ARG WHISPER_MODEL
+RUN pip install --no-cache-dir openai-whisper
+RUN python - <<'PY'
+import os
+import whisper
+model = os.environ.get("WHISPER_MODEL", "base")
+whisper.load_model(model, download_root="/tmp/whisper")
+print(f"Whisper model cached: {model}")
+PY
+
+FROM python:3.11-slim AS kokoro-cache
+RUN pip install --no-cache-dir huggingface_hub
+RUN python - <<'PY'
+from huggingface_hub import snapshot_download
+snapshot_download(repo_id="hexgrad/Kokoro-82M", local_dir="/tmp/kokoro", local_dir_use_symlinks=False)
+print("Kokoro voice model cached")
+PY
+
+FROM ollama/ollama AS ollama-cache
+ARG OLLAMA_MODEL
+RUN mkdir -p /root/.ollama
+RUN /bin/sh -c 'ollama serve >/tmp/ollama.log 2>&1 & \
+    for i in $(seq 1 40); do ollama list >/dev/null 2>&1 && break; sleep 1; done && \
+    ollama pull "${OLLAMA_MODEL}" && \
+    pkill ollama'
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates rsync && rm -rf /var/lib/apt/lists/*
+COPY --from=whisper-cache /tmp/whisper /opt/cache/whisper
+COPY --from=kokoro-cache /tmp/kokoro /opt/cache/kokoro
+COPY --from=ollama-cache /root/.ollama /opt/cache/ollama
+COPY <<'SH' /usr/local/bin/prefetch-models.sh
+#!/bin/sh
+set -eu
+
+mkdir -p /cache/whisper /cache/kokoro /cache/ollama
+rsync -a /opt/cache/whisper/ /cache/whisper/
+rsync -a /opt/cache/kokoro/ /cache/kokoro/
+rsync -a /opt/cache/ollama/ /cache/ollama/
+
+echo "Cached models copied into bind-mounted ./cache directories"
+SH
+RUN chmod +x /usr/local/bin/prefetch-models.sh
+CMD ["/usr/local/bin/prefetch-models.sh"]

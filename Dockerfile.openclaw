@@ -1,0 +1,26 @@
+FROM node:20-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    curl \
+    ca-certificates \
+    git \
+    redis-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+ARG OPENCLAW_INSTALL_SCRIPT=https://raw.githubusercontent.com/rizome-dev/openclaw/main/install.sh
+RUN curl -fsSL "${OPENCLAW_INSTALL_SCRIPT}" | bash
+
+RUN mkdir -p /app/config /app/soul /app/skills
+
+# Bake required skills into the image.
+RUN openclaw skill install offline-voice \
+    && openclaw skill install redis-agent-memory
+
+EXPOSE 18789
+
+CMD ["openclaw", "start", "--config", "/app/config/openclaw.json", "--host", "0.0.0.0", "--port", "18789"]
