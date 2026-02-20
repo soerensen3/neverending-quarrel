@@ -1,13 +1,13 @@
 # Offline Two-Machine OpenClaw Voice Agent Stack
 
-This repository provides a fully containerized, air-gap-friendly setup where two OpenClaw agents can talk to each other using microphone/speaker IO and a shared Redis conversation log.
+This repository provides a fully containerized, air-gap-friendly setup where two OpenClaw agents can talk to each other using microphone/speaker IO. Each machine keeps its own local Redis state.
 
 ## Services per machine
 
 - `ollama/ollama` for local LLM inference
 - `onerahmet/openai-whisper-asr-webservice` for offline STT (internal service on port `9000`)
 - `ghcr.io/remsky/kokoro-fastapi-cpu` for offline TTS (internal service on port `8880`)
-- `redis:alpine` for shared conversation log
+- `redis:alpine` for local turn queue/state
 - OpenClaw service built from `Dockerfile.openclaw`
 
 Only the OpenClaw WebChat UI is exposed externally on host port `18789`.
@@ -27,6 +27,8 @@ Only the OpenClaw WebChat UI is exposed externally on host port `18789`.
 │   │   └── SKILL.md
 │   └── redis-listener/
 │       └── SKILL.md
+├── scripts/
+│   └── local-stt-gate.sh
 ├── config/
 │   └── openclaw.json.example
 ├── soul/
@@ -50,6 +52,76 @@ This builds `Dockerfile.cache`, pre-fetches Whisper, Kokoro, and Ollama artifact
 docker compose up -d
 ```
 
+## 2.1) Local STT gate (recommended)
+
+To avoid self-hearing loops, feed transcribed text through:
+
+```bash
+scripts/local-stt-gate.sh "transcribed text here"
+```
+
+This script writes accepted turns to:
+- `conversation:incoming` (pending user turns for the agent)
+- `conversation:log` (recent local history)
+
+It suppresses turns when:
+- `agent:speaking=1`
+- cooldown is active (`agent:cooldown_until_ms`)
+- text matches recent TTS output (`agent:last_tts_text`) within a short echo window
+
+## 2.2) STT Redis bridge (Whisper -> gate -> OpenClaw)
+
+`docker-compose.yml` includes an `stt-bridge` sidecar that reads transcripts from:
+- input queue: `stt:transcripts` (configurable via `STT_INPUT_LIST`)
+
+For each entry, it:
+1. extracts transcript text (plain text or JSON `{ "text": "..." }`)
+2. applies `scripts/local-stt-gate.sh`
+3. pushes accepted turns into `conversation:incoming`
+
+This makes OpenClaw react only to gated STT content.
+
+## 2.3) Turn driver (Redis incoming -> OpenClaw run)
+
+`docker-compose.yml` includes a `turn-driver` service that consumes:
+- `conversation:incoming`
+
+For each queued turn, it runs:
+- `openclaw agent --local --message "<text>"` (default)
+
+So the full loop is:
+- `stt:transcripts` -> `stt-bridge` -> `conversation:incoming` -> `turn-driver` -> OpenClaw response
+
+Environment knobs:
+- `OPENCLAW_LOCAL=0` (default for sidecar topology)
+- `OPENCLAW_AGENT=<agent-id>` (optional; overrides session-id routing)
+- `OPENCLAW_SESSION_ID=<id>` (default: `${MACHINE_ID}-loop`)
+- `TURN_DRIVER_DEBUG=1` for verbose logs
+
+Note:
+- `turn-driver` is built from `Dockerfile.turn-driver` and includes `redis-cli` at image build time.
+- No runtime package install is required (important for `internal: true` air-gapped networks).
+- runtime state is host-mounted separately:
+  - `./runtime/openclaw` -> `/home/node/.openclaw` (openclaw service)
+  - `./runtime/turn-driver` -> `/home/node/.openclaw` (turn-driver service)
+- configure gateway mode per service once:
+  - `openclaw`: `gateway.mode=local`
+  - `turn-driver`: `gateway.mode=remote` targeting `ws://openclaw:18789`
+
+Quick local test:
+
+```bash
+docker compose exec redis sh -lc 'redis-cli LPUSH stt:transcripts "hello from test"'
+docker compose exec redis sh -lc 'redis-cli LRANGE conversation:incoming 0 2'
+docker compose logs --tail=100 turn-driver
+```
+
+If your Whisper pipeline writes to a different key, set:
+
+```dotenv
+STT_INPUT_LIST=your:whisper:key
+```
+
 ## 3) Configure runtime variables with `.env`
 
 Create `.env` in the repo root:
@@ -71,7 +143,7 @@ cp config/openclaw.json.example config/openclaw.json
 
 Edit `config/openclaw.json` and set:
 - `machineId` to match your `MACHINE_ID`
-- `llm.model` to your intended local model name (`YOUR_MODEL_HERE` by default)
+- `llm.model` to your intended local model name (`llama3` by default)
 - endpoints if you customize service names/ports
 
 ## 4) Personality and user-owned skills
@@ -102,14 +174,36 @@ Equivalent `docker run` style would be:
 --device /dev/snd
 ```
 
+## 6) Echo cancellation (PulseAudio / PipeWire-Pulse)
+
+Enable acoustic echo cancellation on each host so an agent does not re-transcribe its own TTS.
+
+Temporary (runtime) load:
+
+```bash
+pactl load-module module-echo-cancel aec_method=webrtc source_name=mic_aec sink_name=spk_aec
+```
+
+Then select:
+- input source: `mic_aec`
+- output sink: `spk_aec`
+
+Persistent setup:
+- PulseAudio: add the same `load-module module-echo-cancel ...` line to `default.pa`.
+- PipeWire-Pulse: create equivalent echo-cancel filter-chain config and set it as default source/sink.
+
+Recommendation:
+- keep software gating enabled even with AEC (`scripts/local-stt-gate.sh`), because AEC alone does not fully prevent loopbacks in loud rooms.
+- keep Whisper ingestion through `stt-bridge`, not directly into `conversation:incoming`.
+
 ## Offline operation expectation
 
-After the initial online build cache step, the stack is intended to run in air-gapped mode without fetching external models again, as long as `./cache` is preserved.
+After the initial online build cache step, the stack is intended to run in air-gapped mode without fetching external models again, as long as `./cache` is preserved. The two machines do not need network connectivity to each other.
 
 ## Included skills in this repo
 
-- `redis-logger` (logs every response to Redis)
-- `redis-listener` (reads recent conversation history from Redis)
+- `redis-logger` (marks speaking state + logs assistant turns)
+- `redis-listener` (reads pending local STT turns + recent context)
 
 The OpenClaw image additionally installs only:
 - `offline-voice`

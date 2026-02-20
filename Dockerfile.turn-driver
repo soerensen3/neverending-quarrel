@@ -1,0 +1,12 @@
+FROM redis:7-bookworm AS rediscli
+
+FROM alpine/openclaw
+
+USER root
+COPY --from=rediscli /usr/local/bin/redis-cli /usr/local/bin/redis-cli
+COPY scripts/openclaw-turn-driver.sh /app/scripts/openclaw-turn-driver.sh
+RUN chmod 755 /app/scripts/openclaw-turn-driver.sh
+ENV PATH="/home/node/.local/bin:/home/node/.bun/bin:/root/.local/bin:/root/.bun/bin:${PATH}"
+USER node
+
+CMD ["sh", "/app/scripts/openclaw-turn-driver.sh"]

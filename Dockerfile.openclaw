@@ -12,15 +12,35 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-ARG OPENCLAW_INSTALL_SCRIPT=https://raw.githubusercontent.com/rizome-dev/openclaw/main/install.sh
-RUN curl -fsSL "${OPENCLAW_INSTALL_SCRIPT}" | bash
+RUN curl -fsSL https://openclaw.ai/install.sh | bash
+ENV PATH="/root/.local/bin:/root/.bun/bin:${PATH}"
+RUN cat <<'EOF' >/usr/local/bin/openclawx
+#!/bin/sh
+set -eu
+
+# Prefer an already-installed binary from known locations.
+for bin in /root/.local/bin/openclaw /root/.bun/bin/openclaw /usr/local/bin/openclaw; do
+  if [ -x "$bin" ] && [ "$bin" != "/usr/local/bin/openclawx" ]; then
+    exec "$bin" "$@"
+  fi
+done
+
+# Fallbacks when install script did not place a binary.
+if command -v bunx >/dev/null 2>&1; then
+  exec bunx --bun openclaw "$@"
+fi
+
+exec npx --yes openclaw "$@"
+EOF
+RUN chmod +x /usr/local/bin/openclawx
+RUN /usr/local/bin/openclawx --help >/dev/null
 
 RUN mkdir -p /app/config /app/soul /app/skills
 
 # Bake required skills into the image.
-RUN openclaw skill install offline-voice \
-    && openclaw skill install redis-agent-memory
+RUN /usr/local/bin/openclawx skill install offline-voice \
+    && /usr/local/bin/openclawx skill install redis-agent-memory
 
 EXPOSE 18789
 
-CMD ["openclaw", "start", "--config", "/app/config/openclaw.json", "--host", "0.0.0.0", "--port", "18789"]
+CMD ["/usr/local/bin/openclawx", "start", "--config", "/app/config/openclaw.json", "--host", "0.0.0.0", "--port", "18789"]

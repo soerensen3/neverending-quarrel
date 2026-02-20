@@ -3,7 +3,7 @@
   "llm": {
     "provider": "ollama",
     "baseUrl": "http://ollama:11434",
-    "model": "YOUR_MODEL_HERE"
+    "model": "llama3"
   },
   "stt": {
     "provider": "whisper-webservice",
