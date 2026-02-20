@@ -41,10 +41,12 @@ services:
     environment:
       MACHINE_ID: ${MACHINE_ID}
       REDIS_HOST: redis
-      OPENCLAW_CONFIG: /app/config/openclaw.json
+      OPENCLAW_CONFIG: /app/config/openclaw.server.json
     volumes:
       - ./skills:/app/skills:Z
       - ./config/openclaw.json:/app/config/openclaw.json:ro,Z
+      - ./config/openclaw.client.json:/app/config/openclaw.client.json:ro,Z
+      - ./config/openclaw.server.json:/app/config/openclaw.server.json:ro,Z
       - ./soul/SOUL.md:/app/soul/SOUL.md:ro,Z
       - ./runtime/openclaw:/home/node/.openclaw:Z,U
     ports:
@@ -85,7 +87,7 @@ services:
     environment:
       MACHINE_ID: ${MACHINE_ID}
       REDIS_HOST: redis
-      OPENCLAW_CONFIG: /app/config/openclaw.json
+      OPENCLAW_CONFIG: /app/config/openclaw.client.json
       OPENCLAW_LOCAL: ${OPENCLAW_LOCAL:-0}
       OPENCLAW_AGENT: ${OPENCLAW_AGENT:-}
       OPENCLAW_SESSION_ID: ${OPENCLAW_SESSION_ID:-${MACHINE_ID}-loop}
@@ -95,6 +97,8 @@ services:
     volumes:
       - ./skills:/app/skills:ro,Z
       - ./config/openclaw.json:/app/config/openclaw.json:ro,Z
+      - ./config/openclaw.client.json:/app/config/openclaw.client.json:ro,Z
+      - ./config/openclaw.server.json:/app/config/openclaw.server.json:ro,Z
       - ./soul/SOUL.md:/app/soul/SOUL.md:ro,Z
       - ./runtime/turn-driver:/home/node/.openclaw:Z,U
     devices:
