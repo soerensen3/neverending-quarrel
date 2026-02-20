@@ -20,6 +20,7 @@ OPENCLAW_LOCAL="${OPENCLAW_LOCAL:-1}"
 OPENCLAW_AGENT="${OPENCLAW_AGENT:-}"
 OPENCLAW_SESSION_ID="${OPENCLAW_SESSION_ID:-${MACHINE_ID}-loop}"
 OPENCLAW_GATEWAY_URL="${OPENCLAW_GATEWAY_URL:-ws://openclaw:18789}"
+OPENCLAW_CONFIG="${OPENCLAW_CONFIG:-}"
 COOLDOWN_MS="${COOLDOWN_MS:-1200}"
 DEBUG="${DEBUG:-0}"
 OPENCLAW_BIN="${OPENCLAW_BIN:-}"
@@ -62,8 +63,13 @@ run_agent() {
   MSG="$1"
   BIN="$OPENCLAW_BIN"
   RUNNER=""
+  CONFIG_FLAG=""
   ROUTE_FLAG=""
   ROUTE_VALUE=""
+
+  if [ -n "$OPENCLAW_CONFIG" ]; then
+    CONFIG_FLAG="--config $OPENCLAW_CONFIG"
+  fi
 
   if [ -n "$OPENCLAW_AGENT" ]; then
     ROUTE_FLAG="--agent"
@@ -100,23 +106,29 @@ run_agent() {
     debug "runner=$RUNNER"
     if [ "$RUNNER" = "bunx" ]; then
       if [ "$OPENCLAW_LOCAL" = "1" ]; then
-        bunx --bun openclaw agent --local "$ROUTE_FLAG" "$ROUTE_VALUE" --message "$MSG" 2>&1
+        # shellcheck disable=SC2086
+        bunx --bun openclaw agent $CONFIG_FLAG --local "$ROUTE_FLAG" "$ROUTE_VALUE" --message "$MSG" 2>&1
       else
-        bunx --bun openclaw agent "$ROUTE_FLAG" "$ROUTE_VALUE" --message "$MSG" 2>&1
+        # shellcheck disable=SC2086
+        bunx --bun openclaw agent $CONFIG_FLAG "$ROUTE_FLAG" "$ROUTE_VALUE" --message "$MSG" 2>&1
       fi
     else
       if [ "$OPENCLAW_LOCAL" = "1" ]; then
-        npx --yes openclaw agent --local "$ROUTE_FLAG" "$ROUTE_VALUE" --message "$MSG" 2>&1
+        # shellcheck disable=SC2086
+        npx --yes openclaw agent $CONFIG_FLAG --local "$ROUTE_FLAG" "$ROUTE_VALUE" --message "$MSG" 2>&1
       else
-        npx --yes openclaw agent "$ROUTE_FLAG" "$ROUTE_VALUE" --message "$MSG" 2>&1
+        # shellcheck disable=SC2086
+        npx --yes openclaw agent $CONFIG_FLAG "$ROUTE_FLAG" "$ROUTE_VALUE" --message "$MSG" 2>&1
       fi
     fi
   else
     debug "bin=$BIN"
     if [ "$OPENCLAW_LOCAL" = "1" ]; then
-      "$BIN" agent --local "$ROUTE_FLAG" "$ROUTE_VALUE" --message "$MSG" 2>&1
+      # shellcheck disable=SC2086
+      "$BIN" agent $CONFIG_FLAG --local "$ROUTE_FLAG" "$ROUTE_VALUE" --message "$MSG" 2>&1
     else
-      "$BIN" agent "$ROUTE_FLAG" "$ROUTE_VALUE" --message "$MSG" 2>&1
+      # shellcheck disable=SC2086
+      "$BIN" agent $CONFIG_FLAG "$ROUTE_FLAG" "$ROUTE_VALUE" --message "$MSG" 2>&1
     fi
   fi
 }
