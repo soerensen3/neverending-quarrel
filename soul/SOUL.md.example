@@ -1,0 +1,14 @@
+# SOUL.md template
+
+<!--
+Copy this file to `soul/SOUL.md` before starting the stack.
+
+Define your agent personality here:
+- Role and mission
+- Tone and speaking style
+- Values and boundaries
+- Conversation goals
+- Any domain-specific behavior
+
+Keep this file local to your deployment so each machine can have a distinct persona.
+-->

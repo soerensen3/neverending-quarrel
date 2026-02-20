@@ -1,0 +1,108 @@
+services:
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+    networks:
+      - openclaw_net
+
+  ollama:
+    image: ollama/ollama
+    restart: unless-stopped
+    volumes:
+      - ./cache/ollama:/root/.ollama:Z
+    networks:
+      - openclaw_net
+
+  whisper:
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    restart: unless-stopped
+    environment:
+      ASR_MODEL: ${WHISPER_MODEL:-base}
+      ASR_ENGINE: openai_whisper
+    volumes:
+      - ./cache/whisper:/root/.cache:Z
+    networks:
+      - openclaw_net
+
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    restart: unless-stopped
+    volumes:
+      - ./cache/kokoro:/root/.cache:Z
+    networks:
+      - openclaw_net
+
+  openclaw:
+    image: alpine/openclaw
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - ollama
+    environment:
+      MACHINE_ID: ${MACHINE_ID}
+      REDIS_HOST: redis
+      OPENCLAW_CONFIG: /app/config/openclaw.json
+    volumes:
+      - ./skills:/app/skills:Z
+      - ./config/openclaw.json:/app/config/openclaw.json:ro,Z
+      - ./soul/SOUL.md:/app/soul/SOUL.md:ro,Z
+      - ./runtime/openclaw:/home/node/.openclaw:Z,U
+    ports:
+      - "18789:18789"
+    devices:
+      - /dev/snd:/dev/snd
+    networks:
+      - openclaw_net
+
+  stt-bridge:
+    image: redis:alpine
+    restart: unless-stopped
+    depends_on:
+      - redis
+    environment:
+      REDIS_HOST: redis
+      MACHINE_ID: ${MACHINE_ID}
+      STT_INPUT_LIST: ${STT_INPUT_LIST:-stt:transcripts}
+      COOLDOWN_MS: ${COOLDOWN_MS:-1200}
+      ECHO_WINDOW_MS: ${ECHO_WINDOW_MS:-4000}
+      MIN_TEXT_LEN: ${MIN_TEXT_LEN:-3}
+      DEBUG: ${STT_BRIDGE_DEBUG:-0}
+    volumes:
+      - ./scripts:/app/scripts:ro,Z
+    command: ["sh", "/app/scripts/stt-redis-bridge.sh"]
+    networks:
+      - openclaw_net
+
+  turn-driver:
+    build:
+      context: .
+      dockerfile: Dockerfile.turn-driver
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - ollama
+      - openclaw
+    environment:
+      MACHINE_ID: ${MACHINE_ID}
+      REDIS_HOST: redis
+      OPENCLAW_CONFIG: /app/config/openclaw.json
+      OPENCLAW_LOCAL: ${OPENCLAW_LOCAL:-0}
+      OPENCLAW_AGENT: ${OPENCLAW_AGENT:-}
+      OPENCLAW_SESSION_ID: ${OPENCLAW_SESSION_ID:-${MACHINE_ID}-loop}
+      OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL:-ws://openclaw:18789}
+      COOLDOWN_MS: ${COOLDOWN_MS:-1200}
+      DEBUG: ${TURN_DRIVER_DEBUG:-1}
+    volumes:
+      - ./skills:/app/skills:ro,Z
+      - ./config/openclaw.json:/app/config/openclaw.json:ro,Z
+      - ./soul/SOUL.md:/app/soul/SOUL.md:ro,Z
+      - ./runtime/turn-driver:/home/node/.openclaw:Z,U
+    devices:
+      - /dev/snd:/dev/snd
+    networks:
+      - openclaw_net
+
+networks:
+  openclaw_net:
+    driver: bridge
+    internal: true

@@ -1,0 +1,16 @@
+{
+  "machineId": "MACHINE_ID_PLACEHOLDER",
+  "llm": {
+    "provider": "ollama",
+    "baseUrl": "http://ollama:11434",
+    "model": "llama3"
+  },
+  "stt": {
+    "provider": "whisper-webservice",
+    "endpoint": "http://whisper:9000"
+  },
+  "tts": {
+    "provider": "kokoro-fastapi",
+    "endpoint": "http://kokoro:8880"
+  }
+}
