@@ -1,12 +1,42 @@
-FROM redis:7-bookworm AS rediscli
+FROM node:lts-alpine3.22
 
-FROM alpine/openclaw
+RUN apk add --no-cache \
+    bash \
+    curl \
+    ca-certificates \
+    alsa-utils \
+    git \
+    build-base \
+    cmake \
+    python3 \
+    linux-headers \
+    redis
 
-USER root
-COPY --from=rediscli /usr/local/bin/redis-cli /usr/local/bin/redis-cli
+WORKDIR /app
+RUN mkdir -p /root/.openclaw
+
+# Install OpenClaw CLI at build time so runtime stays offline.
+RUN npm install -g openclaw@latest
+RUN openclaw --help >/dev/null
+ENV PATH="/home/node/.local/bin:/home/node/.bun/bin:/root/.local/bin:/root/.bun/bin:/usr/local/bin:${PATH}"
+
+RUN cat <<'EOF' >/usr/local/bin/openclawx
+#!/bin/sh
+set -eu
+
+for bin in /usr/local/bin/openclaw /home/node/.local/bin/openclaw /home/node/.bun/bin/openclaw /root/.local/bin/openclaw /root/.bun/bin/openclaw; do
+  if [ -x "$bin" ] && [ "$bin" != "/usr/local/bin/openclawx" ]; then
+    exec "$bin" "$@"
+  fi
+done
+
+echo "openclaw CLI not found in known locations" >&2
+exit 127
+EOF
+RUN chmod +x /usr/local/bin/openclawx
+RUN /usr/local/bin/openclawx --help >/dev/null
+
 COPY scripts/openclaw-turn-driver.sh /app/scripts/openclaw-turn-driver.sh
 RUN chmod 755 /app/scripts/openclaw-turn-driver.sh
-ENV PATH="/home/node/.local/bin:/home/node/.bun/bin:/root/.local/bin:/root/.bun/bin:${PATH}"
-USER node
 
 CMD ["sh", "/app/scripts/openclaw-turn-driver.sh"]

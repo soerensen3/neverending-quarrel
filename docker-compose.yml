@@ -1,6 +1,6 @@
 services:
   redis:
-    image: redis:alpine
+    image: redis:8.6.0
     restart: unless-stopped
     networks:
       - openclaw_net
@@ -8,8 +8,12 @@ services:
   ollama:
     image: ollama/ollama
     restart: unless-stopped
+    environment:
+      OLLAMA_VULKAN: ${OLLAMA_VULKAN:-1}
     volumes:
-      - ./cache/ollama:/root/.ollama:Z
+      - ${OLLAMA_MODELS_DIR:-./models/ollama}:/root/.ollama:Z,U
+    devices:
+      - /dev/dri:/dev/dri
     networks:
       - openclaw_net
 
@@ -21,38 +25,39 @@ services:
       ASR_ENGINE: openai_whisper
     volumes:
       - ./cache/whisper:/root/.cache:Z
+    ports:
+      - "127.0.0.1:9000:9000"
     networks:
       - openclaw_net
 
-  kokoro:
-    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+  piper:
+    image: ghcr.io/arunk140/serve-piper-tts:latest
     restart: unless-stopped
     volumes:
-      - ./cache/kokoro:/root/.cache:Z
+      - ./models/piper:/go/src/app/models:Z
+    ports:
+      - "127.0.0.1:8080:8080"
     networks:
       - openclaw_net
 
   openclaw:
     image: alpine/openclaw
+    user: "0:0"
     restart: unless-stopped
     depends_on:
       - redis
       - ollama
+      - piper
     environment:
       MACHINE_ID: ${MACHINE_ID}
       REDIS_HOST: redis
-      OPENCLAW_CONFIG: /app/config/openclaw.server.json
+      OPENCLAW_CONFIG: /root/.openclaw/openclaw.json
     volumes:
       - ./skills:/app/skills:Z
-      - ./config/openclaw.json:/app/config/openclaw.json:ro,Z
-      - ./config/openclaw.client.json:/app/config/openclaw.client.json:ro,Z
-      - ./config/openclaw.server.json:/app/config/openclaw.server.json:ro,Z
+      - ./config/openclaw.server.json:/root/.openclaw/openclaw.json:ro,Z
       - ./soul/SOUL.md:/app/soul/SOUL.md:ro,Z
-      - ./runtime/openclaw:/home/node/.openclaw:Z,U
     ports:
       - "18789:18789"
-    devices:
-      - /dev/snd:/dev/snd
     networks:
       - openclaw_net
 
@@ -79,34 +84,39 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.turn-driver
+    userns_mode: host
+    group_add:
+      - "63"
     restart: unless-stopped
     depends_on:
       - redis
       - ollama
-      - openclaw
     environment:
       MACHINE_ID: ${MACHINE_ID}
       REDIS_HOST: redis
-      OPENCLAW_CONFIG: /app/config/openclaw.client.json
-      OPENCLAW_LOCAL: ${OPENCLAW_LOCAL:-0}
-      OPENCLAW_AGENT: ${OPENCLAW_AGENT:-}
-      OPENCLAW_SESSION_ID: ${OPENCLAW_SESSION_ID:-${MACHINE_ID}-loop}
-      OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL:-ws://openclaw:18789}
+      OLLAMA_HOST: ${OLLAMA_HOST:-ollama}
+      OLLAMA_PORT: ${OLLAMA_PORT:-11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5-coder:7b-instruct-q4_K_M}
+      OLLAMA_SYSTEM_PROMPT: '${OLLAMA_SYSTEM_PROMPT:-You are a local voice assistant. Always answer in the same language as the latest user message. Return ONLY compact JSON: {"tool":"talk","text":"<what to say>"} and no markdown.}'
+      OLLAMA_NUM_PREDICT: ${OLLAMA_NUM_PREDICT:-160}
+      OLLAMA_HISTORY_ITEMS: ${OLLAMA_HISTORY_ITEMS:-24}
+      TALK_MODE: ${TALK_MODE:-always}
+      TTS_ENDPOINT: ${TTS_ENDPOINT:-http://piper:8080/api/tts}
+      TTS_VOICE: ${TTS_VOICE:-de-thorsten-low.onnx}
+      TTS_VOICE_DE: ${TTS_VOICE_DE:-de-thorsten-low.onnx}
+      TTS_VOICE_EN: ${TTS_VOICE_EN:-en-us-lessac-medium.onnx}
+      TTS_FORMAT: ${TTS_FORMAT:-wav}
+      OPENCLAW_TIMEOUT_SECS: ${OPENCLAW_TIMEOUT_SECS:-90}
       COOLDOWN_MS: ${COOLDOWN_MS:-1200}
       DEBUG: ${TURN_DRIVER_DEBUG:-1}
     volumes:
       - ./skills:/app/skills:ro,Z
-      - ./config/openclaw.json:/app/config/openclaw.json:ro,Z
-      - ./config/openclaw.client.json:/app/config/openclaw.client.json:ro,Z
-      - ./config/openclaw.server.json:/app/config/openclaw.server.json:ro,Z
+      - ./scripts/openclaw-turn-driver.sh:/app/scripts/openclaw-turn-driver.sh:ro,Z
       - ./soul/SOUL.md:/app/soul/SOUL.md:ro,Z
-      - ./runtime/turn-driver:/home/node/.openclaw:Z,U
-    devices:
-      - /dev/snd:/dev/snd
     networks:
       - openclaw_net
 
 networks:
   openclaw_net:
     driver: bridge
-    internal: true
+    internal: false

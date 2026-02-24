@@ -46,6 +46,12 @@ docker compose -f docker-compose.build.yml build
 
 This builds `Dockerfile.cache`, pre-fetches Whisper, Kokoro, and Ollama artifacts, and stores them under bind-mounted `./cache/*` directories so they remain available offline.
 
+If you only want to download Ollama models (and skip Python/Whisper/Kokoro downloads), run:
+
+```bash
+docker compose -f docker-compose.build.yml run --rm ollama-cache-builder
+```
+
 ## 2) Runtime start
 
 ```bash
@@ -81,29 +87,32 @@ For each entry, it:
 
 This makes OpenClaw react only to gated STT content.
 
-## 2.3) Turn driver (Redis incoming -> OpenClaw run)
+## 2.3) Turn driver (Redis incoming -> Ollama reply)
 
 `docker-compose.yml` includes a `turn-driver` service that consumes:
 - `conversation:incoming`
 
 For each queued turn, it runs:
-- `openclaw agent --local --message "<text>"` (default)
+- `POST /api/chat` on the local `ollama` service (default)
 
 So the full loop is:
-- `stt:transcripts` -> `stt-bridge` -> `conversation:incoming` -> `turn-driver` -> OpenClaw response
+- `stt:transcripts` -> `stt-bridge` -> `conversation:incoming` -> `turn-driver` -> Ollama response
 
 Environment knobs:
-- `OPENCLAW_LOCAL=0` (default for sidecar topology)
-- `OPENCLAW_AGENT=<agent-id>` (optional; overrides session-id routing)
-- `OPENCLAW_SESSION_ID=<id>` (default: `${MACHINE_ID}-loop`)
+- `OLLAMA_HOST=ollama`
+- `OLLAMA_PORT=11434`
+- `OLLAMA_MODEL=<model-name>`
+- `OLLAMA_NUM_PREDICT=160`
 - `TURN_DRIVER_DEBUG=1` for verbose logs
+
+Build cache knobs:
+- `OLLAMA_MODELS=<comma-separated models>` (prefetch multiple Ollama models in one cache build)
 
 Note:
 - `turn-driver` is built from `Dockerfile.turn-driver` and includes `redis-cli` at image build time.
 - No runtime package install is required (important for `internal: true` air-gapped networks).
-- runtime state is host-mounted separately:
-  - `./runtime/openclaw` -> `/home/node/.openclaw` (openclaw service)
-  - `./runtime/turn-driver` -> `/home/node/.openclaw` (turn-driver service)
+- each service mounts its own config at:
+  - `/home/node/.openclaw/openclaw.json`
 - configure gateway mode per service once:
   - `openclaw`: `gateway.mode=local`
   - `turn-driver`: `gateway.mode=remote` targeting `ws://openclaw:18789`
@@ -120,6 +129,8 @@ If your Whisper pipeline writes to a different key, set:
 
 ```dotenv
 STT_INPUT_LIST=your:whisper:key
+OLLAMA_MODELS_DIR=./models/ollama
+OLLAMA_MODELS=qwen2.5-coder:7b-instruct-q4_K_M,qwen2.5-coder:3b-instruct-q4_K_M,qwen2.5-coder:1.5b-instruct-q4_K_M
 ```
 
 ## 3) Configure runtime variables with `.env`
